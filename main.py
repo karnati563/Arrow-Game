@@ -28,10 +28,10 @@ SLIDE_SPEED = 3.0
 SCREEN_DIR = {"U": (0, 1), "D": (0, -1), "L": (-1, 0), "R": (1, 0)}
 
 BG = (0.98, 0.95, 0.91, 1)
-BOARD_BG = (0.97, 0.94, 0.89, 1)
+BOARD_BG = (0.97, 0.99, 0.95, 1)
 BOARD_FRAME = (0.66, 0.54, 0.38, 1)
 BOARD_SHADOW = (0.36, 0.27, 0.19, 0.18)
-GRID_DOT = (0.62, 0.58, 0.53, 0.22)
+GRID_DOT = (0.72, 0.80, 0.72, 0.80)
 INK = (0.14, 0.17, 0.20, 1)
 HINT = (0.18, 0.72, 0.50, 1)
 BAD = (0.88, 0.28, 0.28, 1)
@@ -151,6 +151,17 @@ class BoardWidget(Widget):
             Color(*BOARD_BG)
             RoundedRectangle(pos=(ox, oy), size=(cs * b.cols, cs * b.rows), radius=[cs * 0.22])
 
+            # faint curved row accents for a playful learning board feel
+            Color(0.67, 0.82, 0.67, 0.18)
+            for i in range(1, max(2, min(b.rows, 5))):
+                y = oy + (i / max(2, min(b.rows, 5))) * (cs * b.rows)
+                points = []
+                for x in range(int(b.cols + 1)):
+                    px = ox + x * cs
+                    wave = 0.12 * cs * (1 if x % 2 == 0 else -1)
+                    points.extend([px, y + wave])
+                Line(points=points, width=1.1, close=False)
+
             # subtle inner grid glow
             Color(1, 1, 1, 0.08)
             RoundedRectangle(pos=(ox + cs * 0.04, oy + cs * 0.04), size=(cs * b.cols - cs * 0.08, cs * b.rows - cs * 0.08), radius=[cs * 0.18])
@@ -161,7 +172,7 @@ class BoardWidget(Widget):
                 for c in range(b.cols + 1):
                     x = ox + c * cs
                     Color(*dot_color)
-                    Ellipse(pos=(x - 2.2, y - 2.2), size=(4.4, 4.4))
+                    Ellipse(pos=(x - 2.8, y - 2.8), size=(5.6, 5.6))
 
             for (r, c), t in self.flash.items():
                 cx, cy = self.center(r, c, cs, ox, oy)
@@ -341,11 +352,35 @@ class ArrowApp(App):
         self.board.redraw()
         if self.game.lost:
             self.status.text = "Out of lives - tap Restart"
+            self.show_game_over_popup()
         elif board.solved():
             self.advancing = True
             self.status.text = "Level clear!"
             self.finish_level_success()
-            Clock.schedule_once(self.next_level, 1.2)
+
+    def show_game_over_popup(self):
+        content = BoxLayout(orientation="vertical", spacing=10, padding=20)
+        content.add_widget(Label(text="Game Over", bold=True, font_size="22sp", color=INK))
+        content.add_widget(Label(text="You used all your lives. Try this level again!", halign="center", text_size=(300, None), color=INK))
+        buttons = BoxLayout(size_hint_y=None, height=48, spacing=10)
+        restart_btn = Button(text="Restart", on_release=lambda *_: self.close_game_over_popup())
+        menu_btn = Button(text="Menu", on_release=lambda *_: self.close_game_over_popup(menu=True))
+        buttons.add_widget(restart_btn)
+        buttons.add_widget(menu_btn)
+        content.add_widget(buttons)
+
+        popup = Popup(title="Try again!", content=content, size_hint=(0.8, 0.5), auto_dismiss=False)
+        self.game_over_popup = popup
+        popup.open()
+
+    def close_game_over_popup(self, menu=False):
+        if getattr(self, "game_over_popup", None):
+            self.game_over_popup.dismiss()
+            self.game_over_popup = None
+        if menu:
+            self.open_menu()
+            return
+        self.start_level()
 
     def finish_level_success(self):
         elapsed = max(1, int((datetime.utcnow() - self.start_time).total_seconds()))
@@ -355,6 +390,39 @@ class ArrowApp(App):
         self.session_stars = stars
         self.profile_store.record_level_result(self.profile_name, self.level, stars=stars, hints_used=self.session_hints, play_time_seconds=elapsed)
         self.status.text = f"Level clear! You earned {stars} star(s)!"
+        self.show_level_complete_popup(stars)
+
+    def show_level_complete_popup(self, stars):
+        message = (
+            f"Amazing job! You cleared Level {self.level} with {stars} star(s).\n"
+            "Ready for the next puzzle?"
+        )
+        content = BoxLayout(orientation="vertical", spacing=10, padding=20)
+        content.add_widget(Label(text="Level Complete!", bold=True, font_size="22sp", color=INK))
+        content.add_widget(Label(text=message, halign="center", valign="middle", text_size=(300, None), color=INK))
+
+        buttons = BoxLayout(size_hint_y=None, height=48, spacing=10)
+        next_btn = Button(text="Next Level", on_release=lambda *_: self.close_level_complete_popup("next"))
+        restart_btn = Button(text="Restart", on_release=lambda *_: self.close_level_complete_popup("restart"))
+        buttons.add_widget(next_btn)
+        buttons.add_widget(restart_btn)
+        content.add_widget(buttons)
+
+        popup = Popup(title="Well done!", content=content, size_hint=(0.8, 0.5), auto_dismiss=False)
+        self.level_popup = popup
+        popup.open()
+
+    def close_level_complete_popup(self, action):
+        if getattr(self, "level_popup", None):
+            self.level_popup.dismiss()
+            self.level_popup = None
+        if action == "next":
+            self.level += 1
+            self.save_level()
+            self.start_level()
+        elif action == "restart":
+            self.start_level()
+        self.advancing = False
 
     def next_level(self, *_):
         self.level += 1
